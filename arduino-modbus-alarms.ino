@@ -2,7 +2,7 @@
   Check for alarm conditions of Modbus instruments over ethernet.
 */
 
-#include <config_j.h>
+#include "config_j.h"
 
 #include <ArduinoModbus.h>
 #include <ArduinoRS485.h> // ArduinoModbus depends on the ArduinoRS485 library
@@ -113,10 +113,10 @@ void loop() {
       // read all values and check if any exceed max temp
       for (int i = 0; i < b; i++) {
         r = modbusTCPClient.read();
-        Serial.print("channel ")
-        Serial.print(i)
-        Serial.print(": ")
-        Serial.println(r)
+        Serial.print("channel ");
+        Serial.print(i);
+        Serial.print(": ");
+        Serial.println(r);
 
         // if value exceeds max temperature increment channel count
         if (r > adc_temperature_max) {
@@ -138,7 +138,7 @@ void loop() {
     }
 
     // close connection and move on
-    modbusTCPClient.stop()
+    modbusTCPClient.stop();
   } else {
     Serial.println("Modbus TCP Client failed to connect to temperature ADC!");
     comms_this_loop_errors++;
@@ -160,10 +160,10 @@ void loop() {
       // read all values and check if any exceed max temp
       for (int i = 0; i < b; i++) {
         r = modbusTCPClient.read();
-        Serial.print("channel ")
-        Serial.print(i)
-        Serial.print(": ")
-        Serial.println(r)
+        Serial.print("channel ");
+        Serial.print(i);
+        Serial.print(": ");
+        Serial.println(r);
 
         // if value exceeds max temperature increment channel count
         if (r < adc_flow_min) {
@@ -185,7 +185,7 @@ void loop() {
     }
 
     // close connection and move on
-    modbusTCPClient.stop()
+    modbusTCPClient.stop();
   } else {
     Serial.println("Modbus TCP Client failed to connect to flow ADC!");
     comms_this_loop_errors++;
@@ -220,7 +220,7 @@ void loop() {
     }
 
     // close connection and move on
-    modbusTCPClient.stop()
+    modbusTCPClient.stop();
   } else {
     Serial.println("Modbus TCP Client failed to connect to pressure ADC!");
     comms_this_loop_errors++;
