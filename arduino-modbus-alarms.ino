@@ -36,17 +36,25 @@ int adc_roughing_pressure_max = ADC_ROUGHING_PRESSURE_MAX;
 int adc_turbo_50 = ADC_TURBO_50;
 int adc_temperature_max = ADC_TEMPERATURE_MAX;
 
-// alarm channel counts
+// flow and thermocouple channel counts
 int flow_channels = FLOW_CHANNELS;
 int temperature_channels = TEMPERATURE_CHANNELS;
+int adc_temperature_max_channel_count = 0;
+int adc_flow_min_channel_count = 0;
 
-// bytes available to read after modbus request
+// channels to read on pressure ADC
+int adc_roughing_pressure_ch = ADC_ROUGHING_PRESSURE_CH;
+int adc_turbo_50_ch = ADC_TURBO_50_CH;
+
+// bytes available to read after modbus multiple channel request
 int b;
 
-// modbus read value
+// modbus read values
 long r;
+long turbo_speed;
+long roughing_pressure;
 
-// comms error loop count
+// comms error loop count, if 3 loops report comms errors raise alarm
 int comms_loop_errors = 0;
 int max_comms_loop_errors = 3;
 int comms_this_loop_errors;
@@ -91,43 +99,43 @@ void loop() {
 
   // check temperature adc for alarm conditions
   if (modbusTCPClient.begin(adc_temperature_ip, 502)) {
-      Serial.println("Modbus TCP Client connected to thermocouple ADC!");
+    Serial.println("Modbus TCP Client connected to thermocouple ADC!");
 
-      // request to read and get number of values available
-      modbusTCPClient.requestFrom(adc_temperature_id, INPUT_REGISTERS, 0x00, temperature_channels);
-      b = modbusTCPClient.available();
-      
-      // read values and compare to alarm conditions
-      if (b > 0) {
-        // reset max temp exceeded channel count
-        adc_temperature_max_channels = 0;
+    // request to read and get number of values available
+    modbusTCPClient.requestFrom(adc_temperature_id, INPUT_REGISTERS, 0x00, temperature_channels);
+    b = modbusTCPClient.available();
+    
+    // read values and compare to alarm conditions
+    if (b > 0) {
+      // reset max temp exceeded channel count
+      adc_temperature_max_channel_count = 0;
 
-        // read all values and check if any exceed max temp
-        for (int i = 0; i < b; i++) {
-          r = modbusTCPClient.read();
-          Serial.print("channel ")
-          Serial.print(i)
-          Serial.print(": ")
-          Serial.println(r)
+      // read all values and check if any exceed max temp
+      for (int i = 0; i < b; i++) {
+        r = modbusTCPClient.read();
+        Serial.print("channel ")
+        Serial.print(i)
+        Serial.print(": ")
+        Serial.println(r)
 
-          // if value exceeds max temperature increment channel count
-          if (r > adc_temperature_max) {
-            adc_temperature_max_channels++;
-          }
+        // if value exceeds max temperature increment channel count
+        if (r > adc_temperature_max) {
+        adc_temperature_max_channel_count++;
         }
-
-        // if any channels exceed max temp raise alarm
-        if (adc_temperature_max_channels > 0) {
-          digitalWrite(hi_temperature_alarm_pin, LOW);
-          Serial.print("Maximum temperature exceeded on ");
-          Serial.print(adc_temperature_max_channels);
-          Serial.println(" channels");
-        } else {
-          digitalWrite(hi_temperature_alarm_pin, HIGH);
-        }
-      } else {
-        Serial.println("No values to read");
       }
+
+      // if any channels exceed max temp raise alarm
+      if (adc_temperature_max_channel_count > 0) {
+        digitalWrite(hi_temperature_alarm_pin, LOW);
+        Serial.print("Maximum temperature exceeded on ");
+        Serial.print(adc_temperature_max_channel_count);
+        Serial.println(" channels");
+      } else {
+        digitalWrite(hi_temperature_alarm_pin, HIGH);
+      }
+    } else {
+      Serial.println("No values to read");
+    }
 
     // close connection and move on
     modbusTCPClient.stop()
@@ -136,8 +144,90 @@ void loop() {
     comms_this_loop_errors++;
   }
 
+  // check flow adc for alarm conditions
+  if (modbusTCPClient.begin(adc_flow_ip, 502)) {
+    Serial.println("Modbus TCP Client connected to flow ADC!");
+
+    // request to read and get number of values available
+    modbusTCPClient.requestFrom(adc_flow_id, INPUT_REGISTERS, 0x00, flow_channels);
+    b = modbusTCPClient.available();
+    
+    // read values and compare to alarm conditions
+    if (b > 0) {
+      // reset max temp exceeded channel count
+      adc_flow_min_channel_count = 0;
+
+      // read all values and check if any exceed max temp
+      for (int i = 0; i < b; i++) {
+        r = modbusTCPClient.read();
+        Serial.print("channel ")
+        Serial.print(i)
+        Serial.print(": ")
+        Serial.println(r)
+
+        // if value exceeds max temperature increment channel count
+        if (r < adc_flow_min) {
+        adc_flow_min_channel_count++;
+        }
+      }
+
+      // if any channels exceed max temp raise alarm
+      if (adc_flow_min_channel_count > 0) {
+        digitalWrite(lo_flow_alarm_pin, LOW);
+        Serial.print("Flow below minimum on ");
+        Serial.print(adc_flow_min_channel_count);
+        Serial.println(" channels");
+      } else {
+        digitalWrite(lo_flow_alarm_pin, HIGH);
+      }
+    } else {
+    Serial.println("No values to read");
+    }
+
+    // close connection and move on
+    modbusTCPClient.stop()
+  } else {
+    Serial.println("Modbus TCP Client failed to connect to flow ADC!");
+    comms_this_loop_errors++;
+  }
+
+  // check pressure adc for alarm conditions
+  if (modbusTCPClient.begin(adc_pressure_ip, 502)) {
+    Serial.println("Modbus TCP Client connected to pressure ADC!");
+
+    // read turbo speed
+    turbo_speed = modbusTCPClient.inputRegisterRead(adc_pressure_id, adc_turbo_50_ch);
+    Serial.print("Turbo speed: ");
+    Serial.println(turbo_speed);
+    
+    // check threshold condition
+    if (turbo_speed > adc_turbo_50) {
+      digitalWrite(turbo_50_pin, LOW);
+    } else {
+      digitalWrite(turbo_50_pin, HIGH);  
+    }
+
+    // read roughing pressure
+    roughing_pressure = modbusTCPClient.inputRegisterRead(adc_pressure_id, adc_roughing_pressure_ch);
+    Serial.print("Roughing pressure: ");
+    Serial.println(roughing_pressure);
+    
+    // check threshold condition
+    if (roughing_pressure > adc_roughing_pressure_max) {
+      digitalWrite(hi_roughing_pressure_alarm_pin, LOW);
+    } else {
+      digitalWrite(hi_roughing_pressure_alarm_pin, HIGH);  
+    }
+
+    // close connection and move on
+    modbusTCPClient.stop()
+  } else {
+    Serial.println("Modbus TCP Client failed to connect to pressure ADC!");
+    comms_this_loop_errors++;
+  }
+
   if (comms_this_loop_errors > 0) {
-    // had comms errors so increment counter
+    // had comms errors during this loop so increment counter
     comms_loop_errors++;
   } else {
     // no comms errors this loop so reset counter
@@ -147,7 +237,11 @@ void loop() {
   // report comms error
   if (comms_loop_errors > max_comms_loop_errors) {
     digitalWrite(comms_error_pin, LOW);
+  } else {
+    digitalWrite(comms_error_pin, HIGH);
   }
+
+  delay(1000);
 }
 
 
