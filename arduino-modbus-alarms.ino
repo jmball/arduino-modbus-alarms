@@ -46,6 +46,11 @@ int b;
 // modbus read value
 long r;
 
+// comms error loop count
+int comms_loop_errors = 0;
+int max_comms_loop_errors = 3;
+int comms_this_loop_errors;
+
 // local tcp modbus client
 EthernetClient client;
 ModbusTCPClient modbusTCPClient(client);
@@ -80,6 +85,9 @@ void setup() {
 void loop() {
   // maintain an IP lease from the DHCP server
   Ethernet.maintain();
+
+  // reset comms error count for new loop
+  comms_this_loop_errors = 0;
 
   // check temperature adc for alarm conditions
   if (modbusTCPClient.begin(adc_temperature_ip, 502)) {
@@ -117,16 +125,27 @@ void loop() {
         } else {
           digitalWrite(hi_temperature_alarm_pin, HIGH);
         }
-        
       } else {
         Serial.println("No values to read");
       }
 
     // close connection and move on
     modbusTCPClient.stop()
-
   } else {
     Serial.println("Modbus TCP Client failed to connect to temperature ADC!");
+    comms_this_loop_errors++;
+  }
+
+  if (comms_this_loop_errors > 0) {
+    // had comms errors so increment counter
+    comms_loop_errors++;
+  } else {
+    // no comms errors this loop so reset counter
+    comms_loop_errors = 0;
+  }
+
+  // report comms error
+  if (comms_loop_errors > max_comms_loop_errors) {
     digitalWrite(comms_error_pin, LOW);
   }
 }
