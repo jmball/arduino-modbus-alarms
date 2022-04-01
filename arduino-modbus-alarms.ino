@@ -59,6 +59,10 @@ int comms_loop_errors = 0;
 int max_comms_loop_errors = 3;
 int comms_this_loop_errors;
 
+// software IP and port
+byte software_status_ip[] = SOFTWARE_STATUS_IP;
+int software_status_port = SOFTWARE_STATUS_PORT;
+
 // local tcp modbus client
 EthernetClient client;
 ModbusTCPClient modbusTCPClient(client);
@@ -77,7 +81,8 @@ void setup() {
     delay(1);
   }
 
-  Serial.println("Ethernet connected!");
+  Serial.print("Ethernet connected on IP address: ");
+  Serial.println(Ethernet.localIP());
 
   // init alarm pins
   pinMode(lo_flow_alarm_pin, OUTPUT);
@@ -94,9 +99,6 @@ void setup() {
   digitalWrite(hi_temperature_alarm_pin, LOW);
   digitalWrite(comms_error_pin, LOW);
   digitalWrite(software_error_pin, LOW);
-
-  delay(5000);
-  Serial.println("Ready!");
 }
 
 void loop() {
@@ -247,6 +249,20 @@ void loop() {
   } else {
     Serial.println("Modbus TCP Client failed to connect to pressure ADC!");
     comms_this_loop_errors++;
+  }
+
+  // check if software is running
+  if (client.connect(software_status_ip, software_status_port)) {
+    // the connection was successful so software must be running
+    digitalWrite(software_error_pin, HIGH);
+    Serial.println("TCP Client connected to software!");
+
+    // connection isn't needed anymore so close it
+    client.stop();
+  } else {
+    // the connection was unsuccessful so software probably isn't running
+    digitalWrite(software_error_pin, LOW);
+    Serial.println("TCP Client failed to connect to software!");
   }
 
   if (comms_this_loop_errors > 0) {
