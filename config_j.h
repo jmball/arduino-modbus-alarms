@@ -1,10 +1,15 @@
 #define MAC {0xA8, 0x61, 0x0A, 0xAE, 0x74, 0x8A}
 
-#define ADC_FLOW_IP { 172, 16, 0, 128 }
-#define ADC_PRESSURE_IP { 172, 16, 0, 108 }
-#define ADC_TEMPERATURE_IP { 172, 16, 0, 129 }
+//#define ADC_FLOW_IP { 172, 16, 0, 128 }
+//#define ADC_PRESSURE_IP { 172, 16, 0, 108 }
+//#define ADC_TEMPERATURE_IP { 172, 16, 0, 129 }
 
-#define SOFTWARE_STATUS_IP { 172, 16, 0, 112 }
+#define ADC_FLOW_IP { 192, 168, 0, 28 }
+#define ADC_PRESSURE_IP { 192, 168, 0, 27 }
+#define ADC_TEMPERATURE_IP { 192, 168, 0, 29 }
+
+//#define SOFTWARE_STATUS_IP { 172, 16, 0, 112 }
+#define SOFTWARE_STATUS_IP { 192, 168, 0, 101 }
 #define SOFTWARE_STATUS_PORT 6000
 
 #define ADC_FLOW_ID 1
@@ -21,7 +26,7 @@
 
 // Threshold ADC readings
 #define ADC_FLOW_MIN 1500 // 0.15 lpm
-#define ADC_ROUGHING_PRESSURE_MAX 6143 // 1 mbar
+#define ADC_ROUGHING_PRESSURE_MAX 7429 // 10 mbar
 #define ADC_TEMPERATURE_MAX 6000 // 600C
 #define ADC_TURBO_50 5000 // 50% speed
 

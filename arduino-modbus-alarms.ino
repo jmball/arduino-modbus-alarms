@@ -62,12 +62,29 @@ int comms_this_loop_errors;
 // software IP and port
 byte software_status_ip[] = SOFTWARE_STATUS_IP;
 int software_status_port = SOFTWARE_STATUS_PORT;
+int connect_status;
 
 // local tcp modbus client
 EthernetClient client;
 ModbusTCPClient modbusTCPClient(client);
 
-void setup() { 
+void setup() {
+  // init alarm pins
+  pinMode(lo_flow_alarm_pin, OUTPUT);
+  pinMode(hi_roughing_pressure_alarm_pin, OUTPUT);
+  pinMode(turbo_50_pin, OUTPUT);
+  pinMode(hi_temperature_alarm_pin, OUTPUT);
+  pinMode(comms_error_pin, OUTPUT);
+  pinMode(software_error_pin, OUTPUT);
+
+  // assume error state on start, PLC inputs are active LOW
+  digitalWrite(lo_flow_alarm_pin, LOW);
+  digitalWrite(hi_roughing_pressure_alarm_pin, LOW);
+  digitalWrite(turbo_50_pin, LOW);
+  digitalWrite(hi_temperature_alarm_pin, HIGH);
+  digitalWrite(comms_error_pin, LOW);
+  digitalWrite(software_error_pin, LOW);
+  
   // initialize serial and wait for port to open:
   Serial.begin(9600);
   while (!Serial) {
@@ -82,23 +99,7 @@ void setup() {
   }
 
   Serial.print("Ethernet connected on IP address: ");
-  Serial.println(Ethernet.localIP());
-
-  // init alarm pins
-  pinMode(lo_flow_alarm_pin, OUTPUT);
-  pinMode(hi_roughing_pressure_alarm_pin, OUTPUT);
-  pinMode(turbo_50_pin, OUTPUT);
-  pinMode(hi_temperature_alarm_pin, OUTPUT);
-  pinMode(comms_error_pin, OUTPUT);
-  pinMode(software_error_pin, OUTPUT);
-
-  // assume error state on start, PLC inputs are active LOW
-  digitalWrite(lo_flow_alarm_pin, LOW);
-  digitalWrite(hi_roughing_pressure_alarm_pin, LOW);
-  digitalWrite(turbo_50_pin, LOW);
-  digitalWrite(hi_temperature_alarm_pin, LOW);
-  digitalWrite(comms_error_pin, LOW);
-  digitalWrite(software_error_pin, LOW);
+  Serial.println(Ethernet.localIP());  
 }
 
 void loop() {
@@ -252,7 +253,10 @@ void loop() {
   }
 
   // check if software is running
-  if (client.connect(software_status_ip, software_status_port)) {
+  connect_status = client.connect(software_status_ip, software_status_port);
+  Serial.print("Software status code: ");
+  Serial.println(connect_status);
+  if (connect_status) {
     // the connection was successful so software must be running
     digitalWrite(software_error_pin, HIGH);
     Serial.println("TCP Client connected to software!");
