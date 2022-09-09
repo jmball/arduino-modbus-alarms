@@ -2,22 +2,30 @@
   Check for alarm conditions of Modbus instruments over ethernet.
 */
 
-#include "config_j.h"
+#include "config_wolfson.h"
 
 #include <ArduinoModbus.h>
 #include <ArduinoRS485.h> // ArduinoModbus depends on the ArduinoRS485 library
 #include <Ethernet.h>
 #include <SPI.h>
+#include <TimeLib.h>
+
+char system_name = SYSTEM_NAME;
 
 // MAC address
 byte mac[] = MAC;
 
-// modbus instrument IPs
+// instrument IPs and ports
 byte adc_flow_ip[] = ADC_FLOW_IP;
 byte adc_pressure_ip[] = ADC_PRESSURE_IP;
-byte adc_temperature_ip[] = ADC_TEMPERATURE_IP;
+byte adc_temperature_ips[] = ADC_TEMPERATURE_IPS;
+byte adc_temperature_ip[4];
+int num_temperature_adcs = sizeof(adc_temperature_ips) / sizeof(adc_temperature_ips[0]);
+int adc_flow_port = ADC_FLOW_PORT;
+int adc_pressure_port = ADC_PRESSURE_PORT;
+int adc_temperature_port = ADC_TEMPERATURE_PORT;
 
-// modbus instrument id's
+// instrument id's
 int adc_flow_id = ADC_FLOW_ID;
 int adc_pressure_id = ADC_PRESSURE_ID;
 int adc_temperature_id = ADC_TEMPERATURE_ID;
@@ -34,7 +42,7 @@ int software_error_pin = SOFTWARE_ERROR_ALARM_PIN;
 int adc_flow_min = ADC_FLOW_MIN;
 int adc_roughing_pressure_max = ADC_ROUGHING_PRESSURE_MAX;
 int adc_turbo_50 = ADC_TURBO_50;
-int adc_temperature_max = ADC_TEMPERATURE_MAX;
+float adc_temperature_max = ADC_TEMPERATURE_MAX;
 
 // flow and thermocouple channel counts
 int flow_channels = FLOW_CHANNELS;
@@ -53,6 +61,7 @@ int b;
 long r;
 long turbo_speed;
 long roughing_pressure;
+float temperature;
 
 // comms error loop count, if 3 loops report comms errors raise alarm
 int comms_loop_errors = 0;
@@ -109,55 +118,21 @@ void loop() {
   // reset comms error count for new loop
   comms_this_loop_errors = 0;
 
-  // check temperature adc for alarm conditions
-  if (modbusTCPClient.begin(adc_temperature_ip, 502)) {
-    Serial.println("Modbus TCP Client connected to thermocouple ADC!");
-
-    // request to read and get number of values available
-    modbusTCPClient.requestFrom(adc_temperature_id, INPUT_REGISTERS, 0x00, temperature_channels);
-    b = modbusTCPClient.available();
-    
-    // read values and compare to alarm conditions
-    if (b > 0) {
-      // reset max temp exceeded channel count
-      adc_temperature_max_channel_count = 0;
-
-      // read all values and check if any exceed max temp
-      for (int i = 0; i < b; i++) {
-        r = modbusTCPClient.read();
-        Serial.print("channel ");
-        Serial.print(i);
-        Serial.print(": ");
-        Serial.println(r / 10.0, 2);
-
-        // if value exceeds max temperature increment channel count
-        if (r > adc_temperature_max) {
-        adc_temperature_max_channel_count++;
-        }
-      }
-
-      // if any channels exceed max temp raise alarm
-      if (adc_temperature_max_channel_count > 0) {
-        digitalWrite(hi_temperature_alarm_pin, LOW);
-        Serial.print("Maximum temperature exceeded on ");
-        Serial.print(adc_temperature_max_channel_count);
-        Serial.println(" channels");
-      } else {
-        digitalWrite(hi_temperature_alarm_pin, HIGH);
-      }
-    } else {
-      Serial.println("No values to read");
-    }
-
-    // close connection and move on
-    modbusTCPClient.stop();
-  } else {
-    Serial.println("Modbus TCP Client failed to connect to thermocouple ADC!");
-    comms_this_loop_errors++;
+  // check for temeprature alarm conditions
+  if (system_name == "WOLFSON") {
+    temperature_check_wolfson();
+  }
+  else if (system_name == "G44") {
+    temperature_check_g44();
+  }
+  else {
+    digitalWrite(hi_temperature_alarm_pin, LOW);
+    Serial.println("Invalid system name. Check config header file.");
+    Serial.println("Cannot retrieve temperature information so assuming max temp exceeded to be safe.");
   }
 
   // check flow adc for alarm conditions
-  if (modbusTCPClient.begin(adc_flow_ip, 502)) {
+  if (modbusTCPClient.begin(adc_flow_ip, adc_flow_port)) {
     Serial.println("Modbus TCP Client connected to flow ADC!");
 
     // request to read and get number of values available
@@ -204,7 +179,7 @@ void loop() {
   }
 
   // check pressure adc for alarm conditions
-  if (modbusTCPClient.begin(adc_pressure_ip, 502)) {
+  if (modbusTCPClient.begin(adc_pressure_ip, adc_pressure_port)) {
     Serial.println("Modbus TCP Client connected to pressure ADC!");
 
     // read turbo speed
@@ -288,6 +263,151 @@ void loop() {
   delay(5000);
 }
 
+
+void temperature_check_wolfson() {
+  // reset max temp exceeded channel count
+  adc_temperature_max_channel_count = 0;
+  
+  // loop over all temperature adcs
+  for (int i = 0; i < num_temperature_adcs; i++) {
+    
+    // get temperature adc IP address
+    for (int j = 0; j < 4; j++) {
+      adc_temperature_ip[j] = adc_temperature_ips[i][j];
+    }
+       
+    // check temperature adc for alarm conditions
+    if (modbusTCPClient.begin(adc_temperature_ip, adc_temperature_port)) {
+      Serial.println("Modbus TCP Client connected to thermocouple ADC!");
+  
+      // request to read and get number of values available
+      modbusTCPClient.requestFrom(adc_temperature_id, INPUT_REGISTERS, 0x00, temperature_channels);
+      b = modbusTCPClient.available();
+      
+      // read values and compare to alarm conditions
+      if (b > 0) {
+        // read all values and check if any exceed max temp
+        for (int i = 0; i < b; i++) {
+          r = modbusTCPClient.read();
+          temperature = r / 10.0;
+          Serial.print("channel ");
+          Serial.print(i);
+          Serial.print(": ");
+          Serial.println(temperature, 2);
+  
+          // if value exceeds max temperature increment channel count
+          if (temperature > adc_temperature_max) {
+            adc_temperature_max_channel_count++;
+          }
+        }
+      } else {
+        // no data to read from instrument so must be comms error
+        Serial.println("Modbus TCP Client failed to read from thermocouple ADC!");
+        comms_this_loop_errors++;
+      }
+  
+      // close connection and move on
+      modbusTCPClient.stop();
+    } else {
+      Serial.println("Modbus TCP Client failed to connect to thermocouple ADC!");
+      comms_this_loop_errors++;
+    }
+  }
+
+  // if any channels exceed max temp raise alarm
+  if (adc_temperature_max_channel_count > 0) {
+    digitalWrite(hi_temperature_alarm_pin, LOW);
+    Serial.print("Maximum temperature exceeded on ");
+    Serial.print(adc_temperature_max_channel_count);
+    Serial.println(" channels");
+  } else {
+    digitalWrite(hi_temperature_alarm_pin, HIGH);
+  }
+}
+
+void temperature_check_g44() {
+  // reset max temp exceeded channel count
+  adc_temperature_max_channel_count = 0;
+
+  // comms setup for TCP temperature adc's
+  char TERMCHAR = 0x15;
+  char m;
+  int buf_arr_len = 8;
+  char buf_arr[buf_arr_len];
+  int timeout = 15;
+  
+  // loop over all temperature adcs
+  for (int i = 0; i < num_temperature_adcs; i++) {
+    
+    // get temperature adc IP address
+    for (int j = 0; j < 4; j++) {
+      adc_temperature_ip[j] = adc_temperature_ips[i][j];
+    }
+
+    // connect to temperature adc
+    if (client.connect(adc_temperature_ip, adc_temperature_port)) {
+      
+      // request current temperature
+      client.write("*G110");
+      client.write(TERMCHAR);
+
+      // read response bytes into the buffer
+      int i = 0;
+      time_t t0 = now();
+      int read_err = 0;
+      while (true) {
+        // check error conditions on read
+        if ((now() - t0) > timeout) {
+          read_err = 1;
+          break;
+        }
+        else if (i > buf_arr_len - 1) {
+          read_err = 1;
+          break;
+        }
+    
+        // read a byte into the buffer
+        m = client.read();
+        if (m == TERMCHAR){
+          // end of message reached
+          break;  
+        }
+        buf_arr[i] = m;
+        i++;
+      }
+
+      if (read_err == 0) {
+        temperature = atof(buf_arr);
+
+        // if value exceeds max temperature increment channel count
+        if (temperature > adc_temperature_max) {
+          adc_temperature_max_channel_count++;
+        }
+      } else {
+        comms_this_loop_errors++;
+      }
+      
+      // reset read buffer
+      for (int i = 0; i < buf_arr_len; i++) {
+        buf_arr[i] = '\0';
+      }
+
+      client.stop();
+    } else {
+      Serial.println("Failed to connect to thermocouple ADC!");
+      comms_this_loop_errors++;
+    }
+  
+  // if any channels exceed max temp raise alarm
+  if (adc_temperature_max_channel_count > 0) {
+    digitalWrite(hi_temperature_alarm_pin, LOW);
+    Serial.print("Maximum temperature exceeded on ");
+    Serial.print(adc_temperature_max_channel_count);
+    Serial.println(" channels");
+  } else {
+    digitalWrite(hi_temperature_alarm_pin, HIGH);
+  }
+}
 
 
 
