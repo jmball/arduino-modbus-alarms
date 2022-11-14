@@ -2,23 +2,22 @@
   Check for alarm conditions of Modbus instruments over ethernet.
 */
 
-#include "config_wolfson.h"
-
 #include <ArduinoModbus.h>
 #include <ArduinoRS485.h> // ArduinoModbus depends on the ArduinoRS485 library
 #include <Ethernet.h>
 #include <SPI.h>
 #include <TimeLib.h>
 
-char system_name = SYSTEM_NAME;
+#include "config_wolfson.h"
+char system_name[] = SYSTEM_NAME;
 
 // MAC address
 byte mac[] = MAC;
 
 // instrument IPs and ports
-byte adc_flow_ip[] = ADC_FLOW_IP;
-byte adc_pressure_ip[] = ADC_PRESSURE_IP;
-byte adc_temperature_ips[] = ADC_TEMPERATURE_IPS;
+byte adc_flow_ip[4] = ADC_FLOW_IP;
+byte adc_pressure_ip[4] = ADC_PRESSURE_IP;
+byte adc_temperature_ips[][4] = ADC_TEMPERATURE_IPS;
 byte adc_temperature_ip[4];
 int num_temperature_adcs = sizeof(adc_temperature_ips) / sizeof(adc_temperature_ips[0]);
 int adc_flow_port = ADC_FLOW_PORT;
@@ -73,6 +72,9 @@ byte software_status_ip[] = SOFTWARE_STATUS_IP;
 int software_status_port = SOFTWARE_STATUS_PORT;
 int connect_status;
 
+// local tcp software status client
+EthernetClient software_client;
+
 // local tcp modbus client
 EthernetClient client;
 ModbusTCPClient modbusTCPClient(client);
@@ -119,15 +121,17 @@ void loop() {
   comms_this_loop_errors = 0;
 
   // check for temeprature alarm conditions
-  if (system_name == "WOLFSON") {
+  if (strcmp(system_name, "WOLFSON") == 0) {
     temperature_check_wolfson();
   }
-  else if (system_name == "G44") {
+  else if (strcmp(system_name, "G44") == 0) {
     temperature_check_g44();
   }
   else {
     digitalWrite(hi_temperature_alarm_pin, LOW);
-    Serial.println("Invalid system name. Check config header file.");
+    Serial.print("Invalid system name: "); 
+    Serial.print(system_name);
+    Serial.println(". Check config header file.");
     Serial.println("Cannot retrieve temperature information so assuming max temp exceeded to be safe.");
   }
 
@@ -227,22 +231,31 @@ void loop() {
     comms_this_loop_errors++;
   }
 
-  // check if software is running
-  connect_status = client.connect(software_status_ip, software_status_port);
-  Serial.print("Software status code: ");
-  Serial.println(connect_status);
-  if (connect_status) {
-    // the connection was successful so software must be running
+  // check if software is running by trying to open a connection
+  if (!software_client.connected()) {
+    connect_status = software_client.connect(software_status_ip, software_status_port);
+    Serial.print("Software status code: ");
+    Serial.println(connect_status);
+    if (connect_status > 0) {
+      // the connection was successful so software must be running
+      digitalWrite(software_error_pin, HIGH);
+      Serial.println("TCP Client connected to software!");
+    } else {
+      // the connection was unsuccessful so software probably isn't running
+      digitalWrite(software_error_pin, LOW);
+      Serial.println("TCP Client failed to connect to software!");
+    }
+  } else {
+    // try to flush read buffer to make sure connected() doesn't return true
+    // when disconnected because there's data to read
+    while (software_client.available()) {
+      char c = software_client.read();
+    }
+
+    // still connected so software must be running
     digitalWrite(software_error_pin, HIGH);
     Serial.println("TCP Client connected to software!");
-
-    // connection isn't needed anymore so close it
-    client.stop();
-  } else {
-    // the connection was unsuccessful so software probably isn't running
-    digitalWrite(software_error_pin, LOW);
-    Serial.println("TCP Client failed to connect to software!");
-  }
+  } 
 
   if (comms_this_loop_errors > 0) {
     // had comms errors during this loop so increment counter
@@ -397,6 +410,7 @@ void temperature_check_g44() {
       Serial.println("Failed to connect to thermocouple ADC!");
       comms_this_loop_errors++;
     }
+  }
   
   // if any channels exceed max temp raise alarm
   if (adc_temperature_max_channel_count > 0) {
